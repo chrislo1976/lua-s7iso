@@ -15,6 +15,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 SET(SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lua_s7iso.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/module_includes.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/module_enums.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/module_types.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/module_client.cpp
 )
 
 include_directories(
