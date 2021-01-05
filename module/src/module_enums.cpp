@@ -15,7 +15,7 @@ void register_enums(sol::table& module)
     );
 
     module.new_enum(
-        "S7IsoErrors"
+        "IsoErrors"
         ,"CONNECT",            errIsoConnect
         ,"DISCONNECT",         errIsoDisconnect
         ,"INVALID_PDU",        errIsoInvalidPDU
@@ -30,10 +30,17 @@ void register_enums(sol::table& module)
     );
 
     module.new_enum(
-        "S7CpuStatus"
+        "CpuStatus"
         ,"UNKNOWN", S7CpuStatusUnknown
         ,"RUN",     S7CpuStatusRun
         ,"STOP",    S7CpuStatusStop
+    );
+
+    module.new_enum(
+        "FormatHint"
+        ,"UNSIGNED", S7FormatHint::Unsigned
+        ,"SIGNED",   S7FormatHint::Signed
+        ,"FLOAT",    S7FormatHint::Float
     );
 }
 
