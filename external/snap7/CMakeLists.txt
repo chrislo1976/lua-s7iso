@@ -61,6 +61,12 @@ add_library(
         ${SRCS_WRAPPER}
 )
 
+set_target_properties(
+    ${PROJECT_NAME}
+    PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+)
+
 target_include_directories(
     ${PROJECT_NAME}
     PUBLIC
