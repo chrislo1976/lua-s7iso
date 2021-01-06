@@ -13,7 +13,7 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
     for (std::string::size_type i=0;i<adrStr.length();++i)
         adrStr[i] = std::toupper(adrStr[i],loc);
 
-    // check for single bits (EAM/IQF)
+    // check for single bits (EAM/IQF x.y)
     {
         std::regex re("^([EIAQMF])(\\d+)\\.(\\d+)$", std::regex_constants::ECMAScript);
         std::smatch match;
@@ -39,7 +39,7 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
         }
     }
 
-    // check for byte/word/dword (EAM/IQF)
+    // check for byte/word/dword (EAM/IQF B/W/D x)
     {
         std::regex re("^([EIAQMF])([BWD])(\\d+)$", std::regex_constants::ECMAScript);
         std::smatch match;
@@ -72,18 +72,53 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
         }
     }
 
+    // check for single bits in data block (DBx.DBXy.z)
+    {
+        std::regex re("^DB(\\d+)[.]DBX(\\d+)[.](\\d+)$", std::regex_constants::ECMAScript);
+        std::smatch match;
+        if (std::regex_search(adrStr, match, re) && match.size() >= 4)
+        {
+            std::string db = match[1]; // => capture 0 is the whole string!
+            std::string by = match[2];
+            std::string bi = match[3];
 
-//    std::regex re_db_bits("\\ADB(\\d+)[.]DBX(\\d+)[.](\\d+)$");
-//    if (std::regex_match(adr, re_db_bits))
-//    {
+            adrInfo.area    = S7AreaDB;
+            adrInfo.db      = std::stoi(db);
+            adrInfo.start   = (std::stoi(by) * 8) + std::stoi(bi); // => start is the bit-Index here
+            adrInfo.amount  = 1;
+            adrInfo.wordLen = S7WLBit;
 
-//    }
+            return true;
+        }
+    }
 
-//    std::regex re_db_bytes("\\ADB(\\d+)[.]DB([BWD])(\\d+)$");
-//    if (std::regex_match(adr, re_db_bytes))
-//    {
+    // check for byte/word/dword in data block (DBx.DB B/W/D y)
+    {
+        std::regex re("^DB(\\d+)[.]DB([BWD])(\\d+)$", std::regex_constants::ECMAScript);
+        std::smatch match;
+        if (std::regex_search(adrStr, match, re) && match.size() >= 4)
+        {
+            std::string db = match[1]; // => capture 0 is the whole string!
+            std::string wi = match[2];
+            std::string by = match[3];
 
-//    }
+            adrInfo.area    = S7AreaDB;
+            adrInfo.db      = std::stoi(db);
+            adrInfo.start   = std::stoi(by);
+            adrInfo.amount  = 1;
+
+            if (wi == "B")
+                adrInfo.wordLen = S7WLByte;
+            else if (wi == "W")
+                adrInfo.wordLen = S7WLWord;
+            else if (wi == "D")
+                adrInfo.wordLen = S7WLDWord;
+
+
+            return true;
+        }
+    }
+
 
     return false;
 }
@@ -115,7 +150,7 @@ void register_client(sol::table& module)
                                 {
                                     sol::variadic_results values;
 
-
+                                    // check and interpret given address
                                     S7Address adrInfo;
                                     bool valid = fromS7Address(address, adrInfo);
                                     if (!valid)
@@ -125,6 +160,7 @@ void register_client(sol::table& module)
                                         return values;
                                     }
 
+                                    // take given
                                     S7FormatHint hint = S7FormatHint::Unsigned;
                                     if (formatHint)
                                     {
