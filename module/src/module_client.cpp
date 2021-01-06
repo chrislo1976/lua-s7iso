@@ -123,6 +123,181 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
     return false;
 }
 
+
+sol::variadic_results read(TS7Client& client, std::string address, sol::optional<S7FormatHint> formatHint, sol::this_state L)
+{
+    sol::variadic_results values;
+
+    // check and interpret given address
+    S7Address adrInfo;
+    bool valid = fromS7Address(address, adrInfo);
+    if (!valid)
+    {
+        values.push_back({ L, sol::in_place, sol::lua_nil });
+        values.push_back({ L, sol::in_place, "Invalid address string!" });
+        return values;
+    }
+
+    // take default/given format hint
+    S7FormatHint hint = S7FormatHint::Unsigned;
+    if (formatHint)
+    {
+        hint = formatHint.value();
+    }
+
+
+    uint8_t buf[0xFFFF];
+    int ret = client.ReadArea(adrInfo.area, adrInfo.db, adrInfo.start, adrInfo.amount, adrInfo.wordLen, &buf);
+    if (ret != 0)
+    {
+        values.push_back({ L, sol::in_place, sol::lua_nil });
+        values.push_back({ L, sol::in_place, CliErrorText(ret) });
+
+        return values;
+    }
+
+
+    if (adrInfo.wordLen == S7WLBit)
+    {
+        values.push_back({ L, sol::in_place_type<bool>, buf[0] > 0 });
+        values.push_back({ L, sol::in_place, "OK" });
+    }
+    else if (adrInfo.wordLen == S7WLByte)
+    {
+        if (hint == S7FormatHint::Signed)
+            values.push_back({ L, sol::in_place_type<int8_t>, buf[0] });
+        else
+            values.push_back({ L, sol::in_place_type<uint8_t>, buf[0] });
+
+        values.push_back({ L, sol::in_place, "OK" });
+    }
+    else if (adrInfo.wordLen == S7WLWord)
+    {
+        if (hint == S7FormatHint::Signed)
+        {
+            int16_t v = (*(int16_t*)&buf[0]);
+            SwapEndian(v);
+            values.push_back({ L, sol::in_place_type<int16_t>, v });
+        }
+        else
+        {
+            uint16_t v = (*(uint16_t*)&buf[0]);
+            SwapEndian(v);
+            values.push_back({ L, sol::in_place_type<uint16_t>, v });
+        }
+
+        values.push_back({ L, sol::in_place, "OK" });
+    }
+    else if (adrInfo.wordLen == S7WLDWord)
+    {
+        if (hint == S7FormatHint::Float)
+        {
+            float v = (*(float*)&buf[0]);
+            SwapEndian(v);
+            values.push_back({ L, sol::in_place_type<float>, v });
+        }
+        else if (hint == S7FormatHint::Signed)
+        {
+            int32_t v = (*(int32_t*)&buf[0]);
+            SwapEndian(v);
+            values.push_back({ L, sol::in_place_type<int32_t>, v });
+        }
+        else
+        {
+            uint32_t v = (*(uint32_t*)&buf[0]);
+            SwapEndian(v);
+            values.push_back({ L, sol::in_place_type<uint32_t>, v });
+        }
+
+        values.push_back({ L, sol::in_place, "OK" });
+    }
+    else
+    {
+        values.push_back({ L, sol::in_place, sol::lua_nil });
+        values.push_back({ L, sol::in_place, "Invalid data!" });
+    }
+
+    return values;
+}
+
+sol::variadic_results write(TS7Client& client, std::string address, sol::object value, sol::this_state L)
+{
+    sol::variadic_results values;
+
+    // check and interpret given address
+    S7Address adrInfo;
+    bool valid = fromS7Address(address, adrInfo);
+    if (!valid)
+    {
+        values.push_back({ L, sol::in_place, sol::lua_nil });
+        values.push_back({ L, sol::in_place, "Invalid address string!" });
+        return values;
+    }
+
+    uint8_t buf[0xFFFF];
+
+
+    if (adrInfo.wordLen == S7WLBit && value.is<bool>())
+    {
+        buf[0] = value.as<bool>();
+    }
+    else if (adrInfo.wordLen == S7WLByte && value.is<int>())
+    {
+        int v = value.as<int>();
+        if (v > 255 || v < -128)
+        {
+            values.push_back({ L, sol::in_place, sol::lua_nil });
+            values.push_back({ L, sol::in_place, "Value out of range (0..255 / -128..+127)!" });
+            return values;
+        }
+        buf[0] = value.as<uint8_t>();
+    }
+    else if (adrInfo.wordLen == S7WLWord && value.is<int>())
+    {
+        int vc = value.as<int>();
+        if (vc > 65535 || vc < -32768)
+        {
+            values.push_back({ L, sol::in_place, sol::lua_nil });
+            values.push_back({ L, sol::in_place, "Value out of range (0..65535 / -32768..+32767)!" });
+            return values;
+        }
+
+        uint16_t v = value.as<uint16_t>();
+        SwapEndian(v);
+        (*(uint16_t*)&buf[0]) = v;
+
+    }
+    else if (adrInfo.wordLen == S7WLDWord && (value.is<int>() || value.is<float>()))
+    {
+        if (value.is<int>())
+        {
+            uint32_t v = value.as<uint32_t>();
+            SwapEndian(v);
+            (*(uint32_t*)&buf[0]) = v;
+        }
+        else
+        {
+            float v = value.as<float>();
+            SwapEndian(v);
+            (*(float*)&buf[0]) = v;
+        }
+    }
+    else
+    {
+        values.push_back({ L, sol::in_place, sol::lua_nil });
+        values.push_back({ L, sol::in_place, "Invalid data!" });
+        return values;
+    }
+
+
+    int ret = client.WriteArea(adrInfo.area, adrInfo.db, adrInfo.start, adrInfo.amount, adrInfo.wordLen, &buf);
+
+    values.push_back({ L, sol::in_place, ret });
+    values.push_back({ L, sol::in_place, CliErrorText(ret) });
+
+    return values;
+}
+
 void register_client(sol::table& module)
 {
     module.new_usertype<TS7Client>(
@@ -146,101 +321,8 @@ void register_client(sol::table& module)
         ,"plcStatus",           &TS7Client::PlcStatus
 
 
-        ,"read",                [](TS7Client& client, std::string address, sol::optional<S7FormatHint> formatHint, sol::this_state L)
-                                {
-                                    sol::variadic_results values;
-
-                                    // check and interpret given address
-                                    S7Address adrInfo;
-                                    bool valid = fromS7Address(address, adrInfo);
-                                    if (!valid)
-                                    {
-                                        values.push_back({ L, sol::in_place, sol::lua_nil });
-                                        values.push_back({ L, sol::in_place, "Invalid address string!" });
-                                        return values;
-                                    }
-
-                                    // take given
-                                    S7FormatHint hint = S7FormatHint::Unsigned;
-                                    if (formatHint)
-                                    {
-                                        hint = formatHint.value();
-                                    }
-
-
-                                    uint8_t buf[0xFFFF];
-                                    int ret = client.ReadArea(adrInfo.area, adrInfo.db, adrInfo.start, adrInfo.amount, adrInfo.wordLen, &buf);
-                                    if (ret != 0)
-                                    {
-                                        values.push_back({ L, sol::in_place, sol::lua_nil });
-                                        values.push_back({ L, sol::in_place, CliErrorText(ret) });
-
-                                        return values;
-                                    }
-
-
-                                    if (adrInfo.wordLen == S7WLBit)
-                                    {
-                                        values.push_back({ L, sol::in_place_type<bool>, buf[0] > 0 });
-                                        values.push_back({ L, sol::in_place, "OK" });
-                                    }
-                                    else if (adrInfo.wordLen == S7WLByte)
-                                    {
-                                        if (hint == S7FormatHint::Signed)
-                                            values.push_back({ L, sol::in_place_type<int8_t>, buf[0] });
-                                        else
-                                            values.push_back({ L, sol::in_place_type<uint8_t>, buf[0] });
-
-                                        values.push_back({ L, sol::in_place, "OK" });
-                                    }
-                                    else if (adrInfo.wordLen == S7WLWord)
-                                    {
-                                        if (hint == S7FormatHint::Signed)
-                                        {
-                                            int16_t v = (*(int16_t*)&buf[0]);
-                                            SwapEndian(v);
-                                            values.push_back({ L, sol::in_place_type<int16_t>, v });
-                                        }
-                                        else
-                                        {
-                                            uint16_t v = (*(uint16_t*)&buf[0]);
-                                            SwapEndian(v);
-                                            values.push_back({ L, sol::in_place_type<uint16_t>, v });
-                                        }
-
-                                        values.push_back({ L, sol::in_place, "OK" });
-                                    }
-                                    else if (adrInfo.wordLen == S7WLDWord)
-                                    {
-                                        if (hint == S7FormatHint::Float)
-                                        {
-                                            float v = (*(float*)&buf[0]);
-                                            SwapEndian(v);
-                                            values.push_back({ L, sol::in_place_type<float>, v });
-                                        }
-                                        else if (hint == S7FormatHint::Signed)
-                                        {
-                                            int32_t v = (*(int32_t*)&buf[0]);
-                                            SwapEndian(v);
-                                            values.push_back({ L, sol::in_place_type<int32_t>, v });
-                                        }
-                                        else
-                                        {
-                                            uint32_t v = (*(uint32_t*)&buf[0]);
-                                            SwapEndian(v);
-                                            values.push_back({ L, sol::in_place_type<uint32_t>, v });
-                                        }
-
-                                        values.push_back({ L, sol::in_place, "OK" });
-                                    }
-                                    else
-                                    {
-                                        values.push_back({ L, sol::in_place, sol::lua_nil });
-                                        values.push_back({ L, sol::in_place, "Invalid data!" });
-                                    }
-
-                                    return values;
-                                }
+        ,"read",                &read
+        ,"write",               &write
     );
 }
 

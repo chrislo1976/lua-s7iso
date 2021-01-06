@@ -3,6 +3,7 @@
 #include "snap7.h"
 
 #define SOL_ALL_SAFETIES_ON 1
+#define SOL_SAFE_NUMERICS   1
 #include "sol/sol.hpp"
 
 // helper function for returning "normal value", including an error message on failure
