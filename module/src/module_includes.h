@@ -20,6 +20,7 @@ struct S7Address
     int start   =  0;
     int amount  =  0;
     int wordLen =  0;
+    bool isPointer = false;
 };
 
 enum S7FormatHint

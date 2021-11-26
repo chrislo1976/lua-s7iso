@@ -13,6 +13,35 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
     for (std::string::size_type i=0;i<adrStr.length();++i)
         adrStr[i] = std::toupper(adrStr[i],loc);
 
+    // remove all spaces from address string
+    adrStr.erase(remove_if(adrStr.begin(), adrStr.end(), isspace), adrStr.end());
+
+    // check for pointer (only BYTE-Pointers for now...)
+    bool isPointer = false;
+    if (adrStr.rfind("P#",0) == 0)
+    {
+        int pointerDataLen = 0;
+
+        auto idx = adrStr.find("BYTE",0);
+        if (idx != std::string::npos)
+        {
+            isPointer = true;
+
+            std::string len = adrStr.substr(idx+4);
+            pointerDataLen = std::stoi(len);
+
+            // remove BYTExxxx
+            adrStr = adrStr.substr(0, idx);
+        }
+
+        // remove 'P#' and let address be resolved as usual
+        adrStr = adrStr.substr(2);
+
+        adrInfo.isPointer = true;
+        adrInfo.amount = pointerDataLen;
+        adrInfo.wordLen = S7WLByte;
+    }
+
     // check for single bits (EAM/IQF x.y)
     {
         std::regex re("^([EIAQMF])(\\d+)\\.(\\d+)$", std::regex_constants::ECMAScript);
@@ -32,8 +61,12 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
 
             adrInfo.db      = 0;
             adrInfo.start   = (std::stoi(by) * 8) + std::stoi(bi); // => start is the bit-Index here
-            adrInfo.amount  = 1;
-            adrInfo.wordLen = S7WLBit;
+
+            if (!isPointer)
+            {
+                adrInfo.wordLen = S7WLBit;
+                adrInfo.amount  = 1;
+            }
 
             return true;
         }
@@ -58,14 +91,18 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
 
             adrInfo.db      = 0;
             adrInfo.start   = std::stoi(by);
-            adrInfo.amount  = 1;
 
-            if (wi == "B")
-                adrInfo.wordLen = S7WLByte;
-            else if (wi == "W")
-                adrInfo.wordLen = S7WLWord;
-            else if (wi == "D")
-                adrInfo.wordLen = S7WLDWord;
+            if (!isPointer)
+            {
+                adrInfo.amount  = 1;
+
+                if (wi == "B")
+                    adrInfo.wordLen = S7WLByte;
+                else if (wi == "W")
+                    adrInfo.wordLen = S7WLWord;
+                else if (wi == "D")
+                    adrInfo.wordLen = S7WLDWord;
+            }
 
 
             return true;
@@ -85,8 +122,12 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
             adrInfo.area    = S7AreaDB;
             adrInfo.db      = std::stoi(db);
             adrInfo.start   = (std::stoi(by) * 8) + std::stoi(bi); // => start is the bit-Index here
-            adrInfo.amount  = 1;
-            adrInfo.wordLen = S7WLBit;
+
+            if (!isPointer)
+            {
+                adrInfo.wordLen = S7WLBit;
+                adrInfo.amount  = 1;
+            }
 
             return true;
         }
@@ -105,20 +146,24 @@ bool fromS7Address(std::string adrStr, S7Address& adrInfo)
             adrInfo.area    = S7AreaDB;
             adrInfo.db      = std::stoi(db);
             adrInfo.start   = std::stoi(by);
-            adrInfo.amount  = 1;
 
-            if (wi == "B")
-                adrInfo.wordLen = S7WLByte;
-            else if (wi == "W")
-                adrInfo.wordLen = S7WLWord;
-            else if (wi == "D")
-                adrInfo.wordLen = S7WLDWord;
+
+            if (!isPointer)
+            {
+                adrInfo.amount  = 1;
+
+                if (wi == "B")
+                    adrInfo.wordLen = S7WLByte;
+                else if (wi == "W")
+                    adrInfo.wordLen = S7WLWord;
+                else if (wi == "D")
+                    adrInfo.wordLen = S7WLDWord;
+            }
 
 
             return true;
         }
     }
-
 
     return false;
 }
@@ -156,8 +201,13 @@ sol::variadic_results read(TS7Client& client, std::string address, sol::optional
         return values;
     }
 
-
-    if (adrInfo.wordLen == S7WLBit)
+    if (adrInfo.isPointer)
+    {
+        std::string s((const char*)buf, adrInfo.amount);
+        values.push_back({ L, sol::in_place, s });
+        values.push_back({ L, sol::in_place, "OK" });
+    }
+    else if (adrInfo.wordLen == S7WLBit)
     {
         values.push_back({ L, sol::in_place_type<bool>, buf[0] > 0 });
         values.push_back({ L, sol::in_place, "OK" });
@@ -236,8 +286,13 @@ sol::variadic_results write(TS7Client& client, std::string address, sol::object 
 
     uint8_t buf[0xFFFF];
 
-
-    if (adrInfo.wordLen == S7WLBit && value.is<bool>())
+    if (adrInfo.isPointer && value.is<std::string>())
+    {
+        std::string data = value.as<std::string>();
+        int size = std::min(adrInfo.amount, static_cast<int>(data.length()));
+        std::memcpy((char*)buf, data.c_str(), size);
+    }
+    else if (adrInfo.wordLen == S7WLBit && value.is<bool>())
     {
         buf[0] = value.as<bool>();
     }

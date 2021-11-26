@@ -8,6 +8,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(Lua REQUIRED)
+if (Lua_FOUND)
+    message(STATUS "Using Lua from ${LUA_INCLUDE_DIR}")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
